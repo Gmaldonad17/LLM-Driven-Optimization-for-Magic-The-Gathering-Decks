@@ -1,0 +1,30 @@
+
+cardDataset:
+  root: './data'
+  raw: 'AllPrintings.json'
+  db: 'AllCards.json'
+
+  features: ['name', 'ctype', 'text', 'manaCost', 'toughness', 'power']
+  tokenizer: 'EleutherAI/gpt-neo-1.3B' # 'EleutherAI/gpt-neo-1.3B'
+  max_tokens_card: 60 
+
+  token_ids:
+    mask_token: '[MASK]'
+    pad_token: '[PAD]'
+    cls_token: '[CLS]'
+    sep_token: '[SEP]'
+
+  summarize_model:
+    chatai_parms: 
+      model_name: "gpt-3.5-turbo-0613"
+      temperature: 0
+      max_tokens: 1000
+    
+    pre_prompt: "./dataset/summarize_prompt.txt"
+
+
+deckDataset:
+  root: './data'
+  json_name: 'AllDecks.npy'
+  deck_lengths: 60
+  mask_percent: 0.0

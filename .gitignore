@@ -1,0 +1,7 @@
+*.json
+*.txt
+.env
+__pycache__/
+data/mt_top8/*
+data/mtg_official/*
+*.npy
