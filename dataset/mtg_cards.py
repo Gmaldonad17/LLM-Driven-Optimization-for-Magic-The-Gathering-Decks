@@ -30,7 +30,7 @@ class mtg_cards():
         self.desc_lengths = []
         self.max_tokens_card = max_tokens_card
 
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer, padding_side='left')
         self.tokenizer.add_special_tokens(token_ids)
 
         self.db_file = osp.join(self.dataset_root, db)
@@ -75,7 +75,6 @@ class mtg_cards():
 
 
     def create_card_summary(self, card):
-        # Initialize the base description with mandatory fields
         description = "{name} {type} {manaCost} {text}".format(
             name=card.get('name', '').strip(),
             type=card.get('type', '').strip(),
@@ -83,14 +82,12 @@ class mtg_cards():
             text=card.get('text', '').strip(),
         )
 
-        # Remove text within parentheses (including the parentheses)
         description = re.sub(r"\s*\([^)]*\)", "", description)
+        description = re.sub(r"\"[^\"]*\"", "", description)
 
-        # Conditionally append power and toughness if they are present
         if 'power' in card and 'toughness' in card:
             description += f" P/T {card['power'].strip()}/{card['toughness'].strip()}"
 
-        # Clean up any double spaces and trailing spaces
         description = " ".join(description.split()).strip()
 
         return description
@@ -109,21 +106,22 @@ class mtg_cards():
         return self.all_cards.get(name, None)
 
     def return_card_text(self, name):
-        return self.all_cards[name]['desc'] # + f" {self.token_ids.sep_token}"
+        card = self.all_cards.get(name, None)
+        return card['desc'] if card else name
     
     def return_card_token(self, name):
         return self.tokenizer(self.return_card_text(name), return_tensors='pt')
     
     def return_card_batch(self, deck):
         card_texts = [self.return_card_text(card) for card in deck]
+        card_texts = " [SEP] ".join(card_texts)
+        card_texts = card_texts.replace('.', '')
         
-        return self.tokenizer.batch_encode_plus(
+        return self.tokenizer(
             card_texts,
-            add_special_tokens=True,
+            padding='max_length',
+            max_length=2048 - 60,
             return_tensors='pt',
-            padding=True,
-            truncation=True,
-            max_length=None,
         )
     
     def max_legnth(self):

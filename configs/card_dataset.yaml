@@ -1,4 +1,7 @@
 
+num_workers: 0
+batch_size: 6
+
 cardDataset:
   root: './data'
   raw: 'AllPrintings.json'
@@ -9,11 +12,9 @@ cardDataset:
   max_tokens_card: 60 
 
   token_ids:
-    mask_token: '[MASK]'
+    additional_special_tokens: ['[CLONE]', '[MASK]', '[SEP]']
     pad_token: '[PAD]'
-    cls_token: '[CLS]'
-    sep_token: '[SEP]'
-
+ 
   summarize_model:
     chatai_parms: 
       model_name: "gpt-3.5-turbo-0613"
@@ -28,3 +29,21 @@ deckDataset:
   json_name: 'AllDecks.npy'
   deck_lengths: 60
   mask_percent: 0.0
+  context_window: 2048
+
+optimizer:
+  lr: &blr 1.0e-6
+  weight_decay: 0.05
+
+coeff_step_size_up: 0.75
+coeff_step_size_down: 19
+
+schedular:
+  base_lr: *blr
+  max_lr: 1.0e-4
+  mode: 'triangular2'
+  
+  cycle_momentum: false
+
+Resume:
+  chk_ptn: ''
