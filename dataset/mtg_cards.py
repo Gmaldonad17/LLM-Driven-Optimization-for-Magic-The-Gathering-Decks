@@ -19,7 +19,8 @@ class mtg_cards():
         db="",
         features=[],
         tokenizer='gpt2',
-        max_tokens_card=300,
+        max_tokens_card=60,
+        context_window=2048,
         token_ids={},
         summarize_model={},
         **kwargs,
@@ -29,6 +30,7 @@ class mtg_cards():
         self.token_ids = token_ids
         self.desc_lengths = []
         self.max_tokens_card = max_tokens_card
+        self.context_window = context_window
 
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer, padding_side='left')
         self.tokenizer.add_special_tokens(token_ids)
@@ -120,7 +122,7 @@ class mtg_cards():
         return self.tokenizer(
             card_texts,
             padding='max_length',
-            max_length=2048 - 60,
+            max_length=self.context_window,
             return_tensors='pt',
         )
     

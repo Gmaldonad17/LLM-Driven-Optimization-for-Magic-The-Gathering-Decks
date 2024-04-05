@@ -8,8 +8,9 @@ cardDataset:
   db: 'AllCards.json'
 
   features: ['name', 'ctype', 'text', 'manaCost', 'toughness', 'power']
-  tokenizer: 'EleutherAI/gpt-neo-1.3B' # 'EleutherAI/gpt-neo-1.3B'
-  max_tokens_card: 60 
+  tokenizer: "EleutherAI/gpt-neo-125M" # 'EleutherAI/gpt-neo-1.3B'
+  max_tokens_card: 60 # Used to reduce cards
+  context_window: 2048
 
   token_ids:
     additional_special_tokens: ['[CLONE]', '[MASK]', '[SEP]']
@@ -28,8 +29,11 @@ deckDataset:
   root: './data'
   json_name: 'AllDecks.npy'
   deck_lengths: 60
-  mask_percent: 0.0
+  mask_percent: 0.04
   context_window: 2048
+
+model:
+  name: "EleutherAI/gpt-neo-125M"
 
 optimizer:
   lr: &blr 1.0e-6

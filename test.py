@@ -24,7 +24,7 @@ from transformers import GPT2TokenizerFast
 # # tokenizer.add_special_tokens(token_ids)
 
 # # Preparing the sample text
-# sample = tokenizer("I stuck my balls in her", return_tensors='pt')
+# sample = tokenizer("", return_tensors='pt')
 # sample['input_ids'] = sample['input_ids'].to('cuda')
 # sample['attention_mask'] = sample['attention_mask'].to('cuda')
 

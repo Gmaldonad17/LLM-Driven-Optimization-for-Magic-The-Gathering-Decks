@@ -155,6 +155,7 @@ class mtg_decks(Dataset):
 
         deck = deck[~mask]
         gt = np.array(gt)
+        gt = torch.tensor([self.cards.all_cards[title]['index'] for title in gt])
         return deck, gt
 
     def _shuffle_deck(self, deck):
@@ -167,18 +168,16 @@ class mtg_decks(Dataset):
         return np.concatenate(parsed)
 
     def __getitem__(self, idx): # 25611 2115 length
+        
         deck = self.deckbase[idx]
 
         deck, gt = self._mask_deck(deck)
         deck = self._shuffle_deck(deck)
 
         tokenized_output = self.cards.return_card_batch(deck)
+        tokenized_output['gt'] = gt
 
-        input_ids = tokenized_output['input_ids'][0]
-        attention_mask = tokenized_output['attention_mask'][0]
-        ground_truth = torch.tensor([self.cards.all_cards[title]['index'] for title in gt])
-
-        return input_ids, attention_mask, ground_truth
+        return tokenized_output
 
     
     def max_length(self):
