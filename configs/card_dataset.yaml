@@ -1,6 +1,6 @@
-
-num_workers: 0
-batch_size: 6
+num_workers: 4
+batch_size: 8
+num_train_epochs: 15
 
 cardDataset:
   root: './data'
@@ -9,18 +9,18 @@ cardDataset:
 
   features: ['name', 'ctype', 'text', 'manaCost', 'toughness', 'power']
   tokenizer: "EleutherAI/gpt-neo-125M" # 'EleutherAI/gpt-neo-1.3B'
-  max_tokens_card: 60 # Used to reduce cards
-  context_window: 2048
+  max_tokens_card: 300 # Used to reduce cards
+  context_window: &cw 150
 
   token_ids:
-    additional_special_tokens: ['[CLONE]', '[MASK]', '[SEP]']
+    # additional_special_tokens: ['[CLONE]', '[MASK]', '[SEP]']
     pad_token: '[PAD]'
  
   summarize_model:
     chatai_parms: 
       model_name: "gpt-3.5-turbo-0613"
       temperature: 0
-      max_tokens: 1000
+      max_tokens: *cw
     
     pre_prompt: "./dataset/summarize_prompt.txt"
 
@@ -28,9 +28,9 @@ cardDataset:
 deckDataset:
   root: './data'
   json_name: 'AllDecks.npy'
-  deck_lengths: 60
-  mask_percent: 0.04
-  context_window: 2048
+  deck_length: 60
+  mask_amount: 10
+  context_window: *cw
 
 model:
   name: "EleutherAI/gpt-neo-125M"
@@ -50,4 +50,4 @@ schedular:
   cycle_momentum: false
 
 Resume:
-  chk_ptn: ''
+  chk_ptn: null

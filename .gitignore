@@ -1,7 +1,11 @@
 *.json
 *.txt
 .env
+*.npy
+.history
 __pycache__/
 data/mt_top8/*
 data/mtg_official/*
-*.npy
+data/mtg_decks/*
+wandb/*
+output/*

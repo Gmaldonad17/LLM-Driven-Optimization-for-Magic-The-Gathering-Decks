@@ -19,8 +19,8 @@ class mtg_cards():
         db="",
         features=[],
         tokenizer='gpt2',
-        max_tokens_card=60,
-        context_window=2048,
+        max_tokens_card=150,
+        context_window=150,
         token_ids={},
         summarize_model={},
         **kwargs,
@@ -73,7 +73,7 @@ class mtg_cards():
                 
                 self.all_cards[card['name']] = {'desc':desc, 'index':len(self.all_cards)}
         
-        self.all_cards[self.token_ids.mask_token] = {'desc':self.token_ids.mask_token}
+        # self.all_cards[self.token_ids.mask_token] = {'desc':self.token_ids.mask_token}
 
 
     def create_card_summary(self, card):
@@ -115,9 +115,11 @@ class mtg_cards():
         return self.tokenizer(self.return_card_text(name), return_tensors='pt')
     
     def return_card_batch(self, deck):
+        # card_texts = [self.return_card_text(card) for card in deck]
+        # card_texts = " [SEP] ".join(card_texts)
+        # card_texts = card_texts.replace('.', '')
+
         card_texts = [self.return_card_text(card) for card in deck]
-        card_texts = " [SEP] ".join(card_texts)
-        card_texts = card_texts.replace('.', '')
         
         return self.tokenizer(
             card_texts,

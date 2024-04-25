@@ -7,6 +7,7 @@ import json
 import numpy as np
 import os.path as osp
 from tqdm import tqdm
+from copy import copy
 
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
@@ -18,8 +19,8 @@ class mtg_decks(Dataset):
         root="./data",
         json_name="AllDecks.npy",
         deck_length=60,
-        mask_percent=0.3,
-        context_window=2048,
+        mask_amount=20,
+        context_window=150,
         cards=None,
         **kwargs,
     ):
@@ -27,7 +28,7 @@ class mtg_decks(Dataset):
             self.dataset_root = root
 
         self.deck_length = deck_length
-        self.masked_amount = round(deck_length * mask_percent)
+        self.masked_amount = mask_amount
         self.cards = mtg_cards(**cards)
         self.db_file = json_name
         self.db_file = osp.join(self.dataset_root, self.db_file)
@@ -44,8 +45,8 @@ class mtg_decks(Dataset):
             self.deckbase = np.array(self.deckbase)
             np.save(self.db_file, self.deckbase)
 
-        # self.prune_all_cards()
-        self.cards.max_deck_legnth = self.max_deck_length
+        self.prune_all_cards()
+        # self.cards.max_deck_legnth = self.max_deck_length
 
 
     def _get_db(self):
@@ -75,18 +76,18 @@ class mtg_decks(Dataset):
                 if not self.cards.check_database(card['name']):
                     continue
 
-                card_names += [card['name']] + ["[CLONE]"] * (card['count']-1)
+                card_names += [card['name']] * (card['count']) # + ["[CLONE]"] 
 
             if len(card_names) == self.deck_length:
                 self.deckbase.append(card_names)
             
 
-    def mtg_top8(self, path):
+    def mtg_top8(self, path, desc='MTG Top8 Decks'):
         decks = [osp.join(path, name) for name in os.listdir(path) if name.split('.')[-1] == 'txt']
         
         for deck_name in tqdm(
             decks,
-            desc='MTG Top8 Decks',
+            desc=desc,
         ):
             with open(deck_name, 'r') as file:
                 deck = file.readlines()
@@ -96,6 +97,8 @@ class mtg_decks(Dataset):
                 line = line.strip()
                 if line == 'Sideboard':
                     break
+                if line == '':
+                    continue
 
                 count, *name_parts = line.split(" ")
                 count = int(count)
@@ -104,27 +107,39 @@ class mtg_decks(Dataset):
                 if not self.cards.check_database(name):
                     break
                 
-                card_names.extend([name] + ["[CLONE]"] * (count-1))
+                card_names.extend([name] * (count))
 
             if len(card_names) == self.deck_length:
                 self.deckbase.append(card_names)
+        
+
+    def mtg_decks(self, path):
+        self.mtg_top8(path, desc='MTG.net Decks')
 
 
     def prune_all_cards(self):
         pruned_cards = {}
-        for idx in tqdm(range(self.__len__()), 
-                        desc="Pruning Cards"):
+        index = 0  # Initialize an index counter outside the loop
+        for idx in tqdm(range(self.__len__()), desc="Pruning Cards"):
             deck = self.deckbase[idx]
             for card in deck:
                 if card in self.cards.all_cards.keys():
-                    pruned_cards[card] = self.cards.all_cards[card]
-                    pruned_cards[card]['index'] = len(pruned_cards)-1
+                    if card not in pruned_cards:  # Check if card is already added to avoid reindexing
+                        pruned_cards[card] = copy(self.cards.all_cards[card])
+                        pruned_cards[card]['index'] = index
+                        index += 1  # Increment the index for each new card
 
         self.cards.all_cards = pruned_cards
 
     def __len__(self):
         return self.deckbase.shape[0]
     
+    def _create_mask(self,):
+        mask = np.array([True] * self.masked_amount + [False] * (self.deck_length - self.masked_amount))
+        np.random.shuffle(mask)
+
+        return mask
+
     def _mask_deck(self, deck):
         clone_token = '[CLONE]'
 
@@ -155,48 +170,54 @@ class mtg_decks(Dataset):
 
         deck = deck[~mask]
         gt = np.array(gt)
-        gt = torch.tensor([self.cards.all_cards[title]['index'] for title in gt])
+        # gt = torch.tensor([self.cards.all_cards[title]['index'] for title in gt])
         return deck, gt
 
     def _shuffle_deck(self, deck):
-        clone_token = '[CLONE]'
-        cards_idx = np.where(deck != clone_token)[0]
+        np.random.shuffle(deck)
+        return deck
 
-        parsed = np.split(deck, cards_idx)
-        np.random.shuffle(parsed)
+        # clone_token = '[CLONE]'
+        # cards_idx = np.where(deck != clone_token)[0]
 
-        return np.concatenate(parsed)
+        # parsed = np.split(deck, cards_idx)
+        # np.random.shuffle(parsed)
+
+        # return np.concatenate(parsed)
 
     def __getitem__(self, idx): # 25611 2115 length
         
         deck = self.deckbase[idx]
 
-        deck, gt = self._mask_deck(deck)
+        mask = self._create_mask()
         deck = self._shuffle_deck(deck)
+        labels = deck[mask]
+        labels = torch.tensor([self.cards.all_cards[title]['index'] for title in labels])
 
         tokenized_output = self.cards.return_card_batch(deck)
-        tokenized_output['gt'] = gt
+        tokenized_output['mask'] = mask
+        tokenized_output['gt'] = labels
 
         return tokenized_output
 
     
-    def max_length(self):
-        lengths = []
+    # def max_length(self):
+    #     lengths = []
 
-        for j in range(1):
-            for i in tqdm(range(self.__len__())):
-                lengths.append(sum(self.__getitem__(i)[1]))
+    #     for j in range(1):
+    #         for i in tqdm(range(self.__len__())):
+    #             lengths.append(sum(self.__getitem__(i)[1]))
 
         
-        data = np.array(lengths)
-        plt.figure(figsize=(10, 6))
-        plt.hist(data, bins=range(np.min(data), np.max(data) + 2), align='left', color='skyblue', edgecolor='black')
-        plt.xlabel('Value')
-        plt.ylabel('Frequency')
-        plt.title('Tokens per Deck')
-        plt.grid(axis='y', alpha=0.75)
+    #     data = np.array(lengths)
+    #     plt.figure(figsize=(10, 6))
+    #     plt.hist(data, bins=range(np.min(data), np.max(data) + 2), align='left', color='skyblue', edgecolor='black')
+    #     plt.xlabel('Value')
+    #     plt.ylabel('Frequency')
+    #     plt.title('Tokens per Deck')
+    #     plt.grid(axis='y', alpha=0.75)
 
-        # Show the plot
-        plt.show()
+    #     # Show the plot
+    #     plt.show()
         
-        return max(lengths)
+    #     return max(lengths)
