@@ -14,7 +14,7 @@ cardDataset:
 
   token_ids:
     # additional_special_tokens: ['[CLONE]', '[MASK]', '[SEP]']
-    pad_token: '[PAD]'
+    pad_token: '<|pad|>'
  
   summarize_model:
     chatai_parms: 
@@ -50,4 +50,4 @@ schedular:
   cycle_momentum: false
 
 Resume:
-  chk_ptn: null
+  chk_ptn: './output/checkpoint-46000'

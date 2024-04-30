@@ -196,7 +196,7 @@ class mtg_decks(Dataset):
 
         tokenized_output = self.cards.return_card_batch(deck)
         tokenized_output['mask'] = mask
-        tokenized_output['gt'] = labels
+        tokenized_output['labels'] = labels
 
         return tokenized_output
 

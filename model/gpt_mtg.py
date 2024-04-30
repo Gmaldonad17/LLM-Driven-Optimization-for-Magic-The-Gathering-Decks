@@ -75,10 +75,13 @@ class GPTNeoForMTG(GPTNeoPreTrainedModel):
             )
         card_encodings = transformer_outputs[0][:, -1] # Grabs the last embedding
         card_encodings = card_encodings.view(batch, num_cards, self.hidden_size)
-        gt_encodings = card_encodings[mask].view(batch, -1, self.hidden_size)
+        label_encodings = card_encodings[mask].view(batch, -1, self.hidden_size)
         card_input = card_encodings[~mask].view(batch, -1, self.hidden_size)
 
         loss = 0.0
+        all_logits = []
+        all_selections = []
+        original_labels = labels
         for _ in range(sum(mask[0])):
 
             hidden_states = self.card_transformer(
@@ -95,40 +98,41 @@ class GPTNeoForMTG(GPTNeoPreTrainedModel):
 
             lm_logits = self.lm_head(hidden_states[:, -1]) # torch.Size([12, 12698])
             # Gather the logits related to the grouth truth for teacher forcing
-            gt_logits = torch.gather(lm_logits, 1, gt) # torch.Size([12, 10])
-            # Select the highest likelihood grouth truth to insert to input
-            gt_selections = torch.argmax(gt_logits, 1).unsqueeze(-1) # torch.Size([12,])
-            gt_selections_expanded = gt_selections.unsqueeze(-1).expand(-1, -1, gt_encodings.size(2))
-            # Gather those cards from each batch in the gt_encodings
-            next_cards = torch.gather(gt_encodings, 1, gt_selections_expanded)
-            # Append those cards to the input
-            card_input = torch.cat((card_input, next_cards), dim=1)
+            
+            if labels is not None:
+            
+                next_cards, label_selections, selected_labels = self.get_next_cards(lm_logits, labels, label_encodings)
+                # Append those cards to the input
+                card_input = torch.cat((card_input, next_cards), dim=1)
 
-            if gt is not None:
                 # move labels to correct device to enable model parallelism
-                gt = gt.to(lm_logits.device)
-                target = torch.zeros_like(lm_logits).scatter_(1, gt, 1)
+                labels = labels.to(lm_logits.device)
                 lm_logits = lm_logits.to(torch.float32)
 
+                # All possible choices for model to make
+                target = torch.zeros_like(lm_logits).scatter_(1, labels, 1)
+                
+                # Determine the positive weight value
                 num_positives = target[0].sum()
                 num_negatives = target[0].numel() - num_positives
-                pos_weight_value = num_negatives / num_positives / 100
+                pos_weight_value = num_negatives / num_positives / 10
 
                 loss_fct = BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight_value], device=lm_logits.device))
                 loss += loss_fct(lm_logits, target)
-            
-            # Create a range tensor that matches the second dimension of gt
-            range_tensor = torch.arange(gt.size(1), device=gt.device).unsqueeze(0)
-            # Broadcast gt_selections to match the shape of gt
-            broadcasted_gt_selections = gt_selections.expand(-1, gt.size(1))
-            # Create a mask where the index matches the gt_selections index
-            mask = range_tensor != broadcasted_gt_selections
-            # Apply the mask to gt to keep only the values that do not match gt_selections
-            gt = gt[mask].view(gt.size(0), -1)
 
+                labels = self.remove_label(labels, label_selections)
 
+                all_selections.append(selected_labels)
+
+            all_logits.append(lm_logits)
+                
+        if labels is not None:
+            all_selections = torch.concatenate(all_selections, dim=1)
+
+        all_logits = torch.stack(all_logits)
+        
         if not return_dict:
-            output = (lm_logits,) + transformer_outputs[1:]
+            output = (all_logits,) + (all_selections,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output
 
         return CausalLMOutputWithPast(
@@ -139,6 +143,30 @@ class GPTNeoForMTG(GPTNeoPreTrainedModel):
             attentions=transformer_outputs.attentions,
         )
     
+    def get_next_cards(self, lm_logits, labels, label_encodings):
+        label_logits = torch.gather(lm_logits, 1, labels) # torch.Size([12, 10])
+        # Select the highest likelihood grouth truth to insert to input
+        label_selections = torch.argmax(label_logits, 1).unsqueeze(-1) # torch.Size([12,])
+        # Select those labels from labels
+        selected_labels = torch.gather(labels, 1, label_selections)
+        # Get shape correct for selection of embedded cards
+        label_selections_expanded = label_selections.unsqueeze(-1).expand(-1, -1, label_encodings.size(2))
+        # Gather those cards from each batch in the gt_encodings
+        next_cards = torch.gather(label_encodings, 1, label_selections_expanded)
+
+        return next_cards, label_selections, selected_labels
+
+    def remove_label(self, labels, label_selections):
+        # Create a range tensor that matches the second dimension of gt
+        range_tensor = torch.arange(labels.size(1), device=labels.device).unsqueeze(0)
+        # Broadcast gt_selections to match the shape of gt
+        broadcasted_gt_selections = label_selections.expand(-1, labels.size(1))
+        # Create a mask where the index matches the gt_selections index
+        mask = range_tensor != broadcasted_gt_selections
+        # Apply the mask to gt to keep only the values that do not match gt_selections
+        labels = labels[mask].view(labels.size(0), -1)
+
+        return labels
 
 class DummyWTE(nn.Module):
     def __init__(self):
