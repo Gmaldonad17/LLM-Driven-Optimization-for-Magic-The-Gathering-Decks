@@ -38,5 +38,5 @@ model:
 
 
 Resume:
-  chk_ptn: null # Str or null
-  id: ''
+  chk_ptn: './output/checkpoint-34000' # Str or null
+  id: 'f1fq05ag'

@@ -134,9 +134,21 @@ class mtg_decks(Dataset):
     def __len__(self):
         return self.deckbase.shape[0]
     
-    def _create_mask(self,):
-        mask = np.array([True] * self.masked_amount + [False] * (self.deck_length - self.masked_amount))
-        np.random.shuffle(mask)
+    def _create_mask(self, deck):
+        land_names = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest']
+        # Find indices of land cards in the deck
+        land_indices = [i for i, card in enumerate(deck) if card in land_names]
+
+        # Initialize all positions as False initially
+        mask = np.full(len(deck), False)
+
+        # Determine indices to be masked, excluding land card indices
+        if self.masked_amount <= (len(deck) - len(land_indices)):
+            available_indices = [i for i in range(len(deck)) if i not in land_indices]
+            masked_indices = np.random.choice(available_indices, self.masked_amount, replace=False)
+            mask[masked_indices] = True
+        else:
+            raise ValueError("Masked amount exceeds the number of non-land cards in the deck")
 
         return mask
 
@@ -189,8 +201,8 @@ class mtg_decks(Dataset):
         
         deck = self.deckbase[idx]
 
-        mask = self._create_mask()
         deck = self._shuffle_deck(deck)
+        mask = self._create_mask(deck)
         card_ids = torch.tensor([self.cards.all_cards[card]['index'] for card in deck])
         labels = deck[mask]
         labels = torch.tensor([self.cards.all_cards[title]['index'] for title in labels])
