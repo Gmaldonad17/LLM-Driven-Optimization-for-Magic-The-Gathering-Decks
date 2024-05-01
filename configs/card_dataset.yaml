@@ -1,6 +1,6 @@
 num_workers: 4
 batch_size: 8
-num_train_epochs: 15
+num_train_epochs: 20
 
 cardDataset:
   root: './data'
@@ -32,22 +32,11 @@ deckDataset:
   mask_amount: 10
   context_window: *cw
 
+
 model:
   name: "EleutherAI/gpt-neo-125M"
 
-optimizer:
-  lr: &blr 1.0e-6
-  weight_decay: 0.05
-
-coeff_step_size_up: 0.75
-coeff_step_size_down: 19
-
-schedular:
-  base_lr: *blr
-  max_lr: 1.0e-4
-  mode: 'triangular2'
-  
-  cycle_momentum: false
 
 Resume:
-  chk_ptn: './output/checkpoint-46000'
+  chk_ptn: null # Str or null
+  id: ''

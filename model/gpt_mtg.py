@@ -1,5 +1,5 @@
 from transformers import GPTNeoForCausalLM, GPTNeoModel, GPTNeoPreTrainedModel
-from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss, SmoothL1Loss
 from typing import Optional, Tuple, Union
 from model.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 
@@ -14,6 +14,7 @@ class GPTNeoForMTG(GPTNeoPreTrainedModel):
     def __init__(self, config, 
                  tokenizer_length, 
                  card_vocab,
+                 deck_size=60,
                  ):
         super().__init__(config)
         
@@ -28,9 +29,10 @@ class GPTNeoForMTG(GPTNeoPreTrainedModel):
         self.tokenizer_length = tokenizer_length
         self.hidden_size = config.hidden_size
         self.card_vocab = card_vocab
+        self.deck_size = deck_size
 
         self.resize_token_embeddings(self.tokenizer_length)
-        self.post_init()
+        self.post_init()  
 
     def create_card_T(self, config):
         self.card_transformer = GPTNeoModelMTG(config)
@@ -40,6 +42,7 @@ class GPTNeoForMTG(GPTNeoPreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
+        card_ids: Optional[torch.Tensor] = None,
         gt: Optional[torch.Tensor] = None,
         past_key_values: Optional[Tuple[torch.FloatTensor]] = None,
         attention_mask: Optional[torch.Tensor] = None,
@@ -54,6 +57,22 @@ class GPTNeoForMTG(GPTNeoPreTrainedModel):
         output_hidden_states: Optional[bool] = True,
         return_dict: Optional[bool] = None,
     ):
+        if not self.training:
+            return self.generate_deck(
+                input_ids=input_ids,
+                card_ids=card_ids,
+                past_key_values=past_key_values,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                mask=mask,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
 
         batch, num_cards, max_length = input_ids.shape
         input_ids = input_ids.view(batch * num_cards, max_length)
@@ -117,8 +136,10 @@ class GPTNeoForMTG(GPTNeoPreTrainedModel):
                 num_negatives = target[0].numel() - num_positives
                 pos_weight_value = num_negatives / num_positives / 10
 
-                loss_fct = BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight_value], device=lm_logits.device))
-                loss += loss_fct(lm_logits, target)
+                loss_bce = BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight_value], device=lm_logits.device))
+                loss_l1 = SmoothL1Loss()
+                
+                loss += loss_bce(lm_logits, target) + loss_l1(hidden_states[:, -1], next_cards.squeeze(1)) / 10
 
                 labels = self.remove_label(labels, label_selections)
 
@@ -167,6 +188,78 @@ class GPTNeoForMTG(GPTNeoPreTrainedModel):
         labels = labels[mask].view(labels.size(0), -1)
 
         return labels
+    
+    def generate_deck(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        card_ids: Optional[torch.Tensor] = None,
+        iterations: Optional[int] = None,
+        past_key_values: Optional[Tuple[torch.FloatTensor]] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = True,
+        return_dict: Optional[bool] = None,
+    ):
+        
+        batch, num_cards, max_length = input_ids.shape
+        input_ids = input_ids.view(batch * num_cards, max_length)
+        attention_mask = attention_mask.view(batch * num_cards, max_length)
+
+        with torch.no_grad():
+            transformer_outputs = self.transformer(
+                input_ids,
+                past_key_values=past_key_values,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+        card_encodings = transformer_outputs[0][:, -1] # Grabs the last embedding
+        card_encodings = card_encodings.view(batch, num_cards, self.hidden_size)
+        
+        if mask is not None:
+            card_encodings = card_encodings[~mask].view(batch, -1, self.hidden_size)
+
+        if iterations is None:
+            iterations = abs(self.deck_size - card_encodings.shape[1])
+
+        all_logits = []
+        for _ in range(iterations):
+            hidden_states = self.card_transformer(
+                card_encodings,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+
+            lm_logits = self.lm_head(hidden_states[:, -1])
+            all_logits.append(lm_logits)
+
+            next_card = hidden_states[:, -1].unsqueeze(1)
+            card_encodings = torch.cat((card_encodings, next_card), dim=1)
+        
+        all_logits = torch.stack(all_logits).transpose(1, 0)
+
+        output = (all_logits,) + transformer_outputs[1:]
+        
+        return ((torch.tensor([0.0]),) + output)
 
 class DummyWTE(nn.Module):
     def __init__(self):

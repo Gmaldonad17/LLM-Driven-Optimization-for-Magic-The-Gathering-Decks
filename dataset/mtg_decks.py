@@ -191,12 +191,14 @@ class mtg_decks(Dataset):
 
         mask = self._create_mask()
         deck = self._shuffle_deck(deck)
+        card_ids = torch.tensor([self.cards.all_cards[card]['index'] for card in deck])
         labels = deck[mask]
         labels = torch.tensor([self.cards.all_cards[title]['index'] for title in labels])
 
         tokenized_output = self.cards.return_card_batch(deck)
         tokenized_output['mask'] = mask
         tokenized_output['labels'] = labels
+        tokenized_output['card_ids'] = card_ids
 
         return tokenized_output
 

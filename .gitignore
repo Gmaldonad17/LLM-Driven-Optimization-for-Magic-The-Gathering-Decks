@@ -9,3 +9,4 @@ data/mtg_official/*
 data/mtg_decks/*
 wandb/*
 output/*
+output_dd29/*

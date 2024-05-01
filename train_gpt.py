@@ -17,20 +17,44 @@ from transformers import Trainer, TrainingArguments, GPTNeoModel, SchedulerType
 from model import GPTNeoForMTG, CustomTrainer
 
 def compute_metrics(eval_pred):
-    (logits, choices, *_), labels = eval_pred
-    logits = logits.squeeze(1)
-    choices = choices.flatten()
+    (logits, *_), labels = eval_pred
+    labels = torch.tensor(labels)
 
     probs = torch.nn.functional.softmax(torch.tensor(logits), dim=-1)
-    top1_preds = torch.topk(probs, k=1).indices.squeeze(-1)
+
+
+    probs = probs.transpose(1, 0)
+    all_selections = []
+    for prob in probs:
+        label_logits = torch.gather(prob, 1, labels)
+        label_selections = torch.argmax(label_logits, 1).unsqueeze(-1)
+        selected_labels = torch.gather(labels, 1, label_selections)
+        all_selections.append(selected_labels)
+
+        # Create a range tensor that matches the second dimension of gt
+        range_tensor = torch.arange(labels.size(1), device=labels.device).unsqueeze(0)
+        # Broadcast gt_selections to match the shape of gt
+        broadcasted_gt_selections = label_selections.expand(-1, labels.size(1))
+        # Create a mask where the index matches the gt_selections index
+        mask = range_tensor != broadcasted_gt_selections
+        # Apply the mask to gt to keep only the values that do not match gt_selections
+        labels = labels[mask].view(labels.size(0), -1)
+    
+    choices = torch.concatenate(all_selections, dim=1)
+
+    probs = probs.transpose(1, 0)
+    top1_preds = torch.topk(probs, k=1).indices
     top5_preds = torch.topk(probs, k=5).indices
     top15_preds = torch.topk(probs, k=15).indices
 
     # Check if true labels are within predictions
     top1_correct = top1_preds == torch.tensor(choices)
-    top5_correct = torch.tensor([choices[i] in top5_preds[i] for i in range(len(choices))])
-    top15_correct = torch.tensor([choices[i] in top15_preds[i] for i in range(len(choices))])
+    top5_correct = torch.tensor([choices[:, i] in top5_preds[:, i] for i in range(choices.shape[1])])
+    top15_correct = torch.tensor([choices[:, i] in top15_preds[:, i] for i in range(choices.shape[1])])
 
+    # top1_correct = top1_preds == torch.tensor(choices)
+    # top5_correct = torch.tensor([choices[i] in top5_preds[i] for i in range(len(choices))])
+    # top15_correct = torch.tensor([choices[i] in top15_preds[i] for i in range(len(choices))])
 
     top1_accuracy = top1_correct.float().mean().item()
     top5_accuracy = top5_correct.float().mean().item()
@@ -44,11 +68,12 @@ def compute_metrics(eval_pred):
 
 
 def main():
-    wandb.init(project='huggingface', resume='must', id='s7fnr6xq')
-    
+
     args = parse_args()
     _ = load_dotenv(find_dotenv()) 
     # wandb.login(key=os.getenv('WANDB_API_KEY'))
+    if config.Resume.chk_ptn:
+        wandb.init(project='huggingface', resume='must', id=config.Resume.id)
 
     ds = mtg_decks(**config.deckDataset, cards=config.cardDataset)
     train_set, test_set = random_split(ds, [0.90, 0.10], generator=torch.Generator().manual_seed(42))
